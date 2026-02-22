@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>How Quartz Watches Work — A Complete Guide</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,300;0,400;0,500;1,300&family=Space+Grotesk:wght@300;400;500;600;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0d0f14;--surface:#13161e;--card:#191c26;--card2:#1f2230;
+  --border:rgba(100,180,255,.08);--border2:rgba(100,180,255,.15);
+  --text:#c8d4e8;--muted:#6a7a94;--bright:#eef4ff;
+  --blue:#3a8fff;--blue-dim:rgba(58,143,255,.1);
+  --cyan:#00c8d4;--cyan-dim:rgba(0,200,212,.09);
+  --amber:#f5a623;--amber-dim:rgba(245,166,35,.1);
+  --green:#34d07a;--green-dim:rgba(52,208,122,.09);
+  --red:#ff5f57;--red-dim:rgba(255,95,87,.09);
+  --purple:#a78bfa;--purple-dim:rgba(167,139,250,.09);
+  --sw:265px;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;}
+body{background:var(--bg);color:var(--text);font-family:'Space Grotesk',sans-serif;font-weight:300;line-height:1.7;}
+
+/* subtle grid texture */
+body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(100,180,255,.015) 1px,transparent 1px),linear-gradient(90deg,rgba(100,180,255,.015) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0;}
+
+/* LAYOUT */
+.app{display:grid;grid-template-columns:var(--sw) 1fr;height:100vh;overflow:hidden;position:relative;z-index:1;}
+
+/* SIDEBAR */
+.sidebar{background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;height:100vh;overflow-y:auto;}
+.sb-brand{padding:24px 20px 18px;border-bottom:1px solid var(--border);}
+.sb-eyebrow{font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:4px;color:var(--blue);text-transform:uppercase;margin-bottom:8px;}
+.sb-title{font-family:'Syne',sans-serif;font-size:20px;font-weight:800;color:var(--bright);line-height:1.1;}
+.sb-sub{font-family:'IBM Plex Mono',monospace;font-size:8px;color:var(--muted);letter-spacing:1px;margin-top:6px;}
+.sb-nav{flex:1;padding:8px 0 20px;}
+.sb-grp{padding:10px 20px 3px;font-family:'IBM Plex Mono',monospace;font-size:7.5px;letter-spacing:3px;color:rgba(100,180,255,.3);text-transform:uppercase;}
+.sb-item{display:flex;align-items:center;gap:8px;padding:7px 20px;cursor:pointer;transition:all .15s;border-left:2px solid transparent;font-size:11.5px;color:var(--muted);user-select:none;font-weight:400;}
+.sb-item:hover{color:var(--bright);background:rgba(100,180,255,.04);}
+.sb-item.active{color:var(--blue);border-left-color:var(--blue);background:var(--blue-dim);}
+.sb-dot{width:4px;height:4px;border-radius:50%;background:rgba(100,180,255,.2);flex-shrink:0;}
+.sb-item.active .sb-dot{background:var(--blue);}
+.sb-foot{padding:14px 20px;border-top:1px solid var(--border);}
+.sb-foot p{font-family:'IBM Plex Mono',monospace;font-size:8px;color:rgba(100,180,255,.2);line-height:1.7;}
+
+/* MAIN */
+.main{height:100vh;overflow-y:auto;}
+.panel{display:none;padding:44px 48px 90px;max-width:860px;}
+.panel.active{display:block;}
+
+/* MOBILE */
+.mob-bar{display:none;background:var(--surface);border-bottom:1px solid var(--border);padding:12px 18px;position:sticky;top:0;z-index:50;align-items:center;justify-content:space-between;}
+.mob-tog{background:none;border:1px solid var(--border2);color:var(--muted);padding:5px 14px;border-radius:3px;font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:1px;cursor:pointer;}
+@media(max-width:820px){
+  .app{grid-template-columns:1fr;height:auto;overflow:visible;}
+  .sidebar{display:none;height:auto;}
+  .sidebar.open{display:flex;}
+  .main{height:auto;overflow-y:visible;}
+  .mob-bar{display:flex;}
+  .panel{padding:24px 18px 60px;}
+}
+
+/* PANEL HEADER */
+.ph{margin-bottom:32px;padding-bottom:24px;border-bottom:1px solid var(--border);}
+.ph-eyebrow{font-family:'IBM Plex Mono',monospace;font-size:9px;letter-spacing:4px;color:var(--blue);text-transform:uppercase;margin-bottom:10px;}
+.ph h1{font-family:'Syne',sans-serif;font-size:clamp(26px,4vw,46px);font-weight:800;color:var(--bright);line-height:1.0;letter-spacing:-.5px;}
+.ph h1 .accent{color:var(--cyan);}
+.ph p{font-size:15px;color:var(--muted);margin-top:10px;max-width:580px;line-height:1.75;}
+.ph-rule{height:1px;background:linear-gradient(90deg,var(--blue),transparent);margin-top:18px;max-width:160px;opacity:.5;}
+
+/* SECTION DIVIDER */
+.sdiv{display:flex;align-items:center;gap:12px;margin:26px 0 14px;}
+.sdiv-code{font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--cyan);min-width:32px;}
+.sdiv-line{flex:1;height:1px;background:var(--border);}
+.sdiv-text{font-family:'IBM Plex Mono',monospace;font-size:8.5px;letter-spacing:3px;color:var(--muted);text-transform:uppercase;}
+
+/* BODY TEXT */
+.prose{font-size:15px;color:var(--text);line-height:1.8;margin:10px 0;}
+.prose strong{font-weight:600;color:var(--bright);}
+.prose em{color:var(--cyan);font-style:normal;}
+.prose code{font-family:'IBM Plex Mono',monospace;font-size:12px;background:var(--card);padding:1px 6px;border-radius:3px;color:var(--amber);border:1px solid var(--border);}
+
+/* ANALOGY BLOCK */
+.analogy{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:20px;margin:14px 0;display:grid;grid-template-columns:1fr auto 1fr;gap:16px;align-items:center;}
+@media(max-width:500px){.analogy{grid-template-columns:1fr;}}
+.an-side{text-align:center;}
+.an-icon{font-size:32px;margin-bottom:6px;}
+.an-label{font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:3px;color:var(--muted);text-transform:uppercase;margin-bottom:4px;}
+.an-name{font-size:15px;font-weight:600;color:var(--bright);}
+.an-sub{font-size:12.5px;color:var(--muted);margin-top:3px;}
+.an-eq{font-family:'IBM Plex Mono',monospace;font-size:18px;color:var(--border2);}
+
+/* CARD GRID */
+.card-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0;}
+@media(max-width:540px){.card-grid{grid-template-columns:1fr;}}
+.concept-card{background:var(--card);border:1px solid var(--border);border-radius:6px;overflow:hidden;}
+.cc-head{padding:10px 14px;font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:2px;text-transform:uppercase;font-weight:500;display:flex;align-items:center;gap:8px;}
+.cc-body{padding:13px 14px;font-size:13.5px;color:var(--muted);line-height:1.7;}
+.cc-body strong{color:var(--text);}
+.cch-blue{background:rgba(58,143,255,.15);color:var(--blue);}
+.cch-cyan{background:rgba(0,200,212,.15);color:var(--cyan);}
+.cch-amber{background:rgba(245,166,35,.15);color:var(--amber);}
+.cch-green{background:rgba(52,208,122,.15);color:var(--green);}
+.cch-red{background:rgba(255,95,87,.15);color:var(--red);}
+.cch-purple{background:rgba(167,139,250,.15);color:var(--purple);}
+
+/* EQUATION BOX */
+.eq-box{background:var(--card);border:1px solid var(--border2);border-radius:6px;padding:20px;margin:14px 0;text-align:center;}
+.eq-label{font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:3px;color:var(--muted);text-transform:uppercase;margin-bottom:12px;}
+.eq-formula{font-family:'IBM Plex Mono',monospace;font-size:20px;color:var(--bright);letter-spacing:1px;}
+.eq-formula .v{color:var(--amber);}
+.eq-formula .o{color:var(--muted);}
+.eq-formula .r{color:var(--cyan);}
+.eq-formula .i{color:var(--green);}
+.eq-sub{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--muted);margin-top:8px;}
+
+/* UNITS TABLE */
+.unit-table{width:100%;border-collapse:collapse;margin:12px 0;background:var(--card);border-radius:6px;overflow:hidden;border:1px solid var(--border);}
+.unit-table th{background:rgba(58,143,255,.1);font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:2px;text-transform:uppercase;color:var(--blue);padding:9px 14px;text-align:left;border-bottom:1px solid var(--border);}
+.unit-table td{padding:9px 14px;border-bottom:1px solid var(--border);font-size:13.5px;color:var(--text);}
+.unit-table tr:last-child td{border-bottom:none;}
+.unit-table tr:hover td{background:var(--card2);}
+.unit-table td:first-child{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--amber);}
+
+/* STEP LIST */
+.step-list{display:flex;flex-direction:column;gap:8px;margin:14px 0;}
+.step-item{display:flex;gap:13px;background:var(--card);border:1px solid var(--border);border-radius:6px;padding:13px 16px;align-items:flex-start;}
+.step-num{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--cyan);min-width:24px;margin-top:2px;flex-shrink:0;font-weight:500;}
+.step-title{font-size:14px;color:var(--bright);font-weight:500;margin-bottom:3px;line-height:1.35;}
+.step-detail{font-size:13px;color:var(--muted);line-height:1.65;}
+.step-detail strong{color:var(--text);}
+
+/* CALLOUT */
+.callout{border-left:2px solid var(--blue);padding:11px 16px;background:var(--blue-dim);border-radius:0 5px 5px 0;margin:12px 0;font-size:14px;color:var(--text);}
+.callout.amber{border-color:var(--amber);background:var(--amber-dim);}
+.callout.green{border-color:var(--green);background:var(--green-dim);}
+.callout.red{border-color:var(--red);background:var(--red-dim);}
+.callout.cyan{border-color:var(--cyan);background:var(--cyan-dim);}
+.callout.purple{border-color:var(--purple);background:var(--purple-dim);}
+.callout strong{color:var(--bright);}
+
+/* WARN BOX */
+.warn{background:var(--red-dim);border:1px solid rgba(255,95,87,.2);border-radius:6px;padding:13px 16px;margin:12px 0;display:flex;gap:10px;}
+.warn-icon{color:var(--red);flex-shrink:0;font-size:15px;margin-top:2px;}
+.warn-text{font-size:13.5px;color:var(--text);line-height:1.7;}
+.warn-text strong{color:var(--red);}
+
+/* SIGNAL CHAIN */
+.chain{display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin:14px 0;}
+.chain-node{background:var(--card);border:1px solid var(--border2);border-radius:4px;padding:6px 12px;font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--text);white-space:nowrap;}
+.chain-node.key{border-color:rgba(58,143,255,.4);color:var(--blue);background:var(--blue-dim);}
+.chain-node.cyan{border-color:rgba(0,200,212,.4);color:var(--cyan);background:var(--cyan-dim);}
+.chain-node.amber{border-color:rgba(245,166,35,.4);color:var(--amber);background:var(--amber-dim);}
+.chain-arrow{color:var(--muted);font-size:12px;}
+
+/* STAT CARDS */
+.stat-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin:14px 0;}
+.stat-card{background:var(--card);border:1px solid var(--border);border-radius:6px;padding:14px;}
+.sc-val{font-family:'IBM Plex Mono',monospace;font-size:26px;font-weight:500;color:var(--cyan);line-height:1;}
+.sc-label{font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin-top:5px;}
+
+/* ROTOR DIAGRAM */
+.rotor-diagram{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin:14px 0;}
+.rd-state{background:var(--card);border:1px solid var(--border);border-radius:6px;padding:14px;text-align:center;}
+.rd-num{font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:2px;color:var(--blue);text-transform:uppercase;margin-bottom:8px;}
+.rd-visual{font-size:28px;margin:8px 0;}
+.rd-desc{font-size:12px;color:var(--muted);line-height:1.5;}
+@media(max-width:500px){.rotor-diagram{grid-template-columns:1fr;}}
+
+/* TAG */
+.tag{display:inline-block;padding:2px 9px;border-radius:3px;font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:.5px;font-weight:500;margin-right:4px;}
+.tag-blue{background:var(--blue-dim);color:var(--blue);border:1px solid rgba(58,143,255,.2);}
+.tag-cyan{background:var(--cyan-dim);color:var(--cyan);border:1px solid rgba(0,200,212,.2);}
+.tag-amber{background:var(--amber-dim);color:var(--amber);border:1px solid rgba(245,166,35,.2);}
+.tag-green{background:var(--green-dim);color:var(--green);border:1px solid rgba(52,208,122,.2);}
+.tag-red{background:var(--red-dim);color:var(--red);border:1px solid rgba(255,95,87,.2);}
+
+/* TECH COMPARE */
+.compare-table{width:100%;border-collapse:collapse;margin:12px 0;background:var(--card);border-radius:6px;overflow:hidden;border:1px solid var(--border);}
+.compare-table th{background:rgba(0,200,212,.08);font-family:'IBM Plex Mono',monospace;font-size:8px;letter-spacing:2px;text-transform:uppercase;color:var(--cyan);padding:10px 14px;text-align:left;border-bottom:1px solid var(--border);}
+.compare-table td{padding:10px 14px;border-bottom:1px solid var(--border);font-size:13.5px;color:var(--text);vertical-align:top;}
+.compare-table tr:last-child td{border-bottom:none;}
+.compare-table tr:hover td{background:var(--card2);}
+.compare-table td:first-child{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--amber);font-weight:500;}
+</style>
+</head>
+<body>
+
+<div class="mob-bar">
+  <div style="font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--blue);letter-spacing:3px;">QUARTZ GUIDE</div>
+  <button class="mob-tog" onclick="document.querySelector('.sidebar').classList.toggle('open')">☰ MENU</button>
+</div>
+
+<div class="app">
+<aside class="sidebar">
+  <div class="sb-brand">
+    <div class="sb-eyebrow">Technical Reference</div>
+    <div class="sb-title">How Quartz<br>Watches Work</div>
+    <div class="sb-sub">Electricity · Motors · Crystals · Testing</div>
+  </div>
+  <nav class="sb-nav">
+    <div class="sb-grp">Introduction</div>
+    <div class="sb-item active" onclick="nav(this,'p0')"><span class="sb-dot"></span>Overview & Key Concepts</div>
+
+    <div class="sb-grp">The Basics</div>
+    <div class="sb-item" onclick="nav(this,'p1')"><span class="sb-dot"></span>Electricity Explained</div>
+    <div class="sb-item" onclick="nav(this,'p2')"><span class="sb-dot"></span>Ohm's Law & Units</div>
+    <div class="sb-item" onclick="nav(this,'p3')"><span class="sb-dot"></span>Magnetism</div>
+
+    <div class="sb-grp">The Motor</div>
+    <div class="sb-item" onclick="nav(this,'p4')"><span class="sb-dot"></span>How the Stepper Motor Works</div>
+    <div class="sb-item" onclick="nav(this,'p5')"><span class="sb-dot"></span>Direction & Current Pulses</div>
+
+    <div class="sb-grp">The Crystal</div>
+    <div class="sb-item" onclick="nav(this,'p6')"><span class="sb-dot"></span>The Quartz Oscillator</div>
+    <div class="sb-item" onclick="nav(this,'p7')"><span class="sb-dot"></span>The Piezo-Electric Effect</div>
+
+    <div class="sb-grp">The Battery</div>
+    <div class="sb-item" onclick="nav(this,'p8')"><span class="sb-dot"></span>Cells & Capacitors</div>
+    <div class="sb-item" onclick="nav(this,'p9')"><span class="sb-dot"></span>Cell Types & Battery Life</div>
+    <div class="sb-item" onclick="nav(this,'p10')"><span class="sb-dot"></span>EOL & Disposal</div>
+
+    <div class="sb-grp">The Circuit</div>
+    <div class="sb-item" onclick="nav(this,'p11')"><span class="sb-dot"></span>The Quartz Circuit</div>
+    <div class="sb-item" onclick="nav(this,'p12')"><span class="sb-dot"></span>Rate Setting & Inhibition</div>
+
+    <div class="sb-grp">The Train</div>
+    <div class="sb-item" onclick="nav(this,'p13')"><span class="sb-dot"></span>The Quartz Gear Train</div>
+    <div class="sb-item" onclick="nav(this,'p14')"><span class="sb-dot"></span>Motion Work & Keyless Work</div>
+    <div class="sb-item" onclick="nav(this,'p15')"><span class="sb-dot"></span>Date Change Mechanism</div>
+
+    <div class="sb-grp">Display & Testing</div>
+    <div class="sb-item" onclick="nav(this,'p16')"><span class="sb-dot"></span>LCD Displays</div>
+    <div class="sb-item" onclick="nav(this,'p17')"><span class="sb-dot"></span>Testing Quartz Watches</div>
+  </nav>
+  <div class="sb-foot">
+    <p>32,768 Hz. Every second,<br>divided 15 times by 2.<br>That's how quartz keeps time.</p>
+  </div>
+</aside>
+
+<main class="main">
+
+<!-- 00 OVERVIEW -->
+<div class="panel active" id="p0">
+  <div class="ph">
+    <div class="ph-eyebrow">Complete Guide</div>
+    <h1>How <span class="accent">Quartz</span><br>Watches Work</h1>
+    <p>No pendulum, no mainspring — just a tiny vibrating crystal, a motor, and clever electronics. This guide explains every part of a quartz watch in plain language, from the basics of electricity all the way to testing and fault diagnosis.</p>
+    <div class="ph-rule"></div>
+  </div>
+  <div class="stat-row">
+    <div class="stat-card"><div class="sc-val">32,768</div><div class="sc-label">Hz crystal frequency</div></div>
+    <div class="stat-card"><div class="sc-val">1.55V</div><div class="sc-label">Silver oxide cell voltage</div></div>
+    <div class="stat-card"><div class="sc-val">180°</div><div class="sc-label">Rotor step per pulse</div></div>
+    <div class="stat-card"><div class="sc-val">15×</div><div class="sc-label">Divide-by-2 stages to get 1 Hz</div></div>
+  </div>
+
+  <div class="sdiv"><span class="sdiv-code">§</span><div class="sdiv-line"></div><span class="sdiv-text">Signal Chain — Crystal to Hands</span></div>
+  <div class="chain">
+    <div class="chain-node cyan">Quartz Crystal<br><span style="font-size:8px;opacity:.6;">32,768 Hz</span></div><div class="chain-arrow">→</div>
+    <div class="chain-node key">Frequency Divider<br><span style="font-size:8px;opacity:.6;">÷2 × 15 times</span></div><div class="chain-arrow">→</div>
+    <div class="chain-node amber">1 Hz Pulse<br><span style="font-size:8px;opacity:.6;">once per second</span></div><div class="chain-arrow">→</div>
+    <div class="chain-node">Stepper Motor<br><span style="font-size:8px;opacity:.6;">180° per pulse</span></div><div class="chain-arrow">→</div>
+    <div class="chain-node">Gear Train</div><div class="chain-arrow">→</div>
+    <div class="chain-node">Hands</div>
+  </div>
+
+  <div class="sdiv"><span class="sdiv-code">§</span><div class="sdiv-line"></div><span class="sdiv-text">What Makes Quartz So Accurate?</span></div>
+  <div class="card-grid">
+    <div class="concept-card"><div class="cc-head cch-cyan">No Gravity Effect</div><div class="cc-body">A quartz crystal is so tiny and light that gravity has essentially no effect on its vibration rate. A mechanical watch needs careful balancing to compensate — quartz simply doesn't have the problem.</div></div>
+    <div class="concept-card"><div class="cc-head cch-blue">Stable Temperature</div><div class="cc-body">Quartz is far less sensitive to temperature changes than a metal pendulum or balance spring. Temperature changes that would noticeably affect a mechanical watch barely register on a quartz oscillator.</div></div>
+    <div class="concept-card"><div class="cc-head cch-amber">No Air Pressure Effect</div><div class="cc-body">Because the quartz crystal is sealed in a small container, changes in barometric pressure have no effect on its frequency. Traditional pendulum clocks are noticeably affected by air pressure changes.</div></div>
+    <div class="concept-card"><div class="cc-head cch-green">Consistent High Frequency</div><div class="cc-body">At 32,768 vibrations per second, small errors average out over time. A mechanical watch balance oscillates at only 3–4 Hz — every tiny disturbance has a far greater proportional effect on accuracy.</div></div>
+  </div>
+</div>
+
+<!-- 01 ELECTRICITY EXPLAINED -->
+<div class="panel" id="p1">
+  <div class="ph">
+    <div class="ph-eyebrow">Chapter 1 · The Basics</div>
+    <h1>Electricity <span class="accent">Explained</span></h1>
+    <p>Electricity is invisible, which makes it feel mysterious. But it behaves in a very predictable way — and comparing it to water flowing through pipes makes it click immediately.</p>
+    <div class="ph-rule"></div>
+  </div>
+
+  <div class="sdiv"><span class="sdiv-code">1.1</span><div class="sdiv-line"></div><span class="sdiv-text">The Water Pipe Analogy</span></div>
+  <p class="prose">Imagine a pump pushing water around a loop of pipe, through a radiator and back. The pump creates <strong>pressure</strong> that drives the water. The radiator's narrow passages <strong>resist</strong> the flow. The resulting <strong>flow rate</strong> of water depends on both.</p>
+
+  <div class="analogy">
+    <div class="an-side">
+      <div class="an-icon">💧</div>
+      <div class="an-label">Water System</div>
+      <div class="an-name">Pump</div><div class="an-sub">creates pressure</div>
+      <div class="an-name" style="margin-top:8px;">Pipe</div><div class="an-sub">carries the water</div>
+      <div class="an-name" style="margin-top:8px;">Radiator</div><div class="an-sub">resists the flow</div>
+      <div class="an-name" style="margin-top:8px;">Flow rate</div><div class="an-sub">litres per second</div>
+    </div>
+    <div class="an-eq">=</div>
+    <div class="an-side">
+      <div class="an-icon">⚡</div>
+      <div class="an-label">Electrical Circuit</div>
+      <div class="an-name">Battery</div><div class="an-sub">creates voltage</div>
+      <div class="an-name" style="margin-top:8px;">Wire</div><div class="an-sub">carries the current</div>
+      <div class="an-name" style="margin-top:8px;">Lamp / Resistor</div><div class="an-sub">resists the current</div>
+      <div class="an-name" style="margin-top:8px;">Current</div><div class="an-sub">amps (flow of electrons)</div>
+    </div>
+  </div>
+
+  <div class="callout"><strong>The key insight:</strong> Higher pump pressure → more water flow. Higher battery voltage → more electrical current. More resistance → less flow, in both systems. Once you see this parallel, electrical theory makes intuitive sense.</div>
+
+  <p class="prose">In an electrical circuit, the <strong>battery</strong> drives current out of its positive terminal, through the circuit, and back into the negative terminal. The direction is conventional — electrons actually flow the other way, but this is a detail that doesn't affect how we use the theory.</p>
+
+  <div class="sdiv"><span class="sdiv-code">1.2</span><div class="sdiv-line"></div><span class="sdiv-text">The Two Rules of Flow</span></div>
+  <div class="card-grid">
+    <div class="concept-card"><div class="cc-head cch-blue">Rule 1 — Voltage (Pressure)</div><div class="cc-body"><strong>Higher voltage = more current.</strong> If you double the battery voltage, you double the current flowing through the circuit. The pump pushes harder, more water flows.</div></div>
+    <div class="concept-card"><div class="cc-head cch-amber">Rule 2 — Resistance</div><div class="cc-body"><strong>Higher resistance = less current.</strong> A more restrictive component allows less current to pass, even at the same voltage. Narrow pipes restrict water — resistors restrict electrons.</div></div>
+  </div>
+</div>
+
+<!-- 02 OHM'S LAW -->
+<div class="panel" id="p2">
+  <div class="ph">
+    <div class="ph-eyebrow">Chapter 2 · The Basics</div>
+    <h1>Ohm's Law &amp; <span class="accent">Units</span></h1>
+    <p>Three quantities. One equation. Everything in basic electrical theory flows from this relationship.</p>
+    <div class="ph-rule"></div>
+  </div>
+
+  <div class="sdiv"><span class="sdiv-code">2.1</span><div class="sdiv-line"></div><span class="sdiv-text">The Three Quantities</span></div>
+  <table class="unit-table">
+    <thead><tr><th>Quantity</th><th>Name</th><th>Symbol</th><th>In a Watch</th></tr></thead>
+    <tbody>
+      <tr><td>V</td><td>Voltage (electrical pressure)</td><td>Volts (V)</td><td>Battery: approx 1.55 V</td></tr>
+      <tr><td>I</td><td>Current (electrical flow)</td><td>Amps (A)</td><td>Watch circuit: a few microamps (μA)</td></tr>
+      <tr><td>R</td><td>Resistance (opposition to flow)</td><td>Ohms (Ω)</td><td>Coil: several hundred to a few kΩ</td></tr>
+    </tbody>
+  </table>
+
+  <div class="sdiv"><span class="sdiv-code">2.2</span><div class="sdiv-line"></div><span class="sdiv-text">Ohm's Law</span></div>
+  <div class="eq-box">
+    <div class="eq-label">The fundamental relationship</div>
+    <div class="eq-formula"><span class="v">V</span><span class="o"> = </span><span class="i">I</span><span class="o"> × </span><span class="r">R</span></div>
+    <div class="eq-sub">Voltage = Current × Resistance</div>
+  </div>
+
+  <div class="card-grid">
+    <div class="concept-card"><div class="cc-head cch-amber">Find Current</div><div class="cc-body" style="font-family:'IBM Plex Mono',monospace;font-size:13px;"><strong style="color:var(--green)">I = V ÷ R</strong><br><br>If you know voltage and resistance, divide to get current.</div></div>
+    <div class="concept-card"><div class="cc-head cch-cyan">Find Resistance</div><div class="cc-body" style="font-family:'IBM Plex Mono',monospace;font-size:13px;"><strong style="color:var(--green)">R = V ÷ I</strong><br><br>If you know voltage and current, divide to get resistance.</div></div>
+  </div>
+
+  <div class="sdiv"><span class="sdiv-code">2.3</span><div class="sdiv-line"></div><span class="sdiv-text">Prefixes — Because Watch Currents Are Tiny</span></div>
+  <p class="prose">A quartz watch uses currents so small they are measured in <em>microamps</em> — millionths of an amp. We use prefixes to avoid writing out all those zeros.</p>
+  <table class="unit-table">
+    <thead><tr><th>Prefix</th><th>Symbol</th><th>Meaning</th><th>Example</th></tr></thead>
+    <tbody>
+      <tr><td>mega</td><td>M</td><td>× 1,000,000</td><td>1 MΩ = one million ohms</td></tr>
+      <tr><td>kilo</td><td>k</td><td>× 1,000</td><td>2 kΩ = two thousand ohms</td></tr>
+      <tr><td>milli</td><td>m</td><td>÷ 1,000</td><td>3 mV = three thousandths of a volt</td></tr>
+      <tr><td>micro</td><td>μ</td><td>÷ 1,000,000</td><td>5 μA = five millionths of an amp</td></tr>
+    </tbody>
+  </table>
+  <div class="callout cyan"><strong>For quartz watches:</strong> You'll nearly always work in <strong>volts</strong> and <strong>microamps (μA)</strong>. The currents involved are extraordinarily tiny — a typical quartz watch circuit draws around 1–2 μA continuously. That's why a small battery lasts 1–2 years.</div>
+</div>
+
+<!-- 03 MAGNETISM -->
+<div class="panel" id="p3">
+  <div class="ph">
+    <div class="ph-eyebrow">Chapter 3 · The Basics</div>
+    <h1><span class="accent">Magnetism</span></h1>
+    <p>The stepper motor relies on one key trick: a coil of wire carrying electrical current creates a magnetic field. Change the direction of the current, change the magnetic poles — and the rotor spins.</p>
+    <div class="ph-rule"></div>
+  </div>
+
+  <div class="sdiv"><span class="sdiv-code">3.1</span><div class="sdiv-line"></div><span class="sdiv-text">Key Magnetic Facts for Watchmakers</span></div>
+  <div class="card-grid">
+    <div class="concept-card"><div class="cc-head cch-blue">Opposite poles attract</div><div class="cc-body"><strong>North pulls South.</strong> This is what aligns the rotor when current flows — the rotor's permanent magnet aligns with the magnetic poles created in the stator.</div></div>
+    <div class="concept-card"><div class="cc-head cch-red">Like poles repel</div><div class="cc-body"><strong>North pushes North.</strong> When the current in the coil reverses, the stator poles flip. Now like poles face each other — and repulsion spins the rotor.</div></div>
+    <div class="concept-card"><div class="cc-head cch-amber">Coil = electromagnet</div><div class="cc-body">Passing current through a coil of wire creates a magnetic field around it. Reverse the current, reverse the poles. This is the core principle of the stepper motor.</div></div>
+    <div class="concept-card"><div class="cc-head cch-green">Permanent magnets</div><div class="cc-body">The rotor contains a <strong>permanent magnet</strong> — it keeps its magnetism without any current flowing. The stator is only magnetised when current flows through the coil.</div></div>
+  </div>
+</div>
+
+<!-- 04 STEPPER MOTOR -->
+<div class="panel" id="p4">
+  <div class="ph">
+    <div class="ph-eyebrow">Chapter 4 · The Motor</div>
+    <h1>The <span class="accent">Stepper Motor</span></h1>
+    <p>The stepper motor converts electrical pulses into precise rotational steps. Each pulse from the circuit turns the rotor exactly 180 degrees — and that drives the gear train forward by one step.</p>
+    <div class="ph-rule"></div>
+  </div>
+
+  <div class="sdiv"><span class="sdiv-code">4.1</span><div class="sdiv-line"></div><span class="sdiv-text">The Three Components</span></div>
+  <div class="card-grid">
+    <div class="concept-card"><div class="cc-head cch-blue">Rotor</div><div class="cc-body">A tiny disc containing a <strong>permanent magnet</strong>. It has a North and South pole. It's connected to the gear train via a pinion. When the rotor spins, the train moves.</div></div>
+    <div class="concept-card"><div class="cc-head cch-cyan">Stator</div><div class="cc-body">A shaped piece of magnetic material surrounding the rotor. When current flows through the coil, the stator becomes magnetised and creates North/South pole faces that push or pull the rotor.</div></div>
+    <div class="concept-card"><div class="cc-head cch-amber">Coil</div><div class="cc-body">Thousands of turns of fine copper wire wound around the stator. When the circuit sends current through the coil, the stator becomes an electromagnet. Reversing the current reverses the magnetic poles.</div></div>
+    <div class="concept-card"><div class="cc-head cch-green">Result</div><div class="cc-body">Reverse the current → stator poles flip → like poles repel → rotor spins 180° → pinion advances the gear train → hands move forward exactly one step.</div></div>
+  </div>
+
+  <div class="sdiv"><span class="sdiv-code">4.2</span><div class="sdiv-line"></div><span class="sdiv-text">The Sequence — Step by Step</span></div>
+  <div class="rotor-diagram">
+    <div class="rd-state"><div class="rd-num">State 1</div><div class="rd-visual">🧲</div><div class="rd-desc"><strong>Current flows.</strong> Stator creates N/S poles. Rotor aligns — opposite poles attract. Rotor is stable.</div></div>
+    <div class="rd-state"><div class="rd-num">State 2</div><div class="rd-visual">⚡</div><div class="rd-desc"><strong>Current reverses.</strong> Stator poles flip. Now like poles face each other — North faces North. Repulsion pushes rotor to spin.</div></div>
+    <div class="rd-state"><div class="rd-num">State 3</div><div class="rd-visual">🔄</div><div class="rd-desc"><strong>Rotor spins 180°.</strong> It stops when its poles align with the new stator poles — opposite poles attract again. One step complete.</div></div>
+  </div>
+
+  <div class="callout"><strong>Why "stepper"?</strong> Unlike a regular electric motor that spins continuously, a stepper motor advances in precise, fixed steps — each step exactly 180°. This makes it perfect for a watch because you can control exactly how far the hands advance with each pulse.</div>
+</div>
+
+<!-- 05 DIRECTION & PULSES -->
+<div class="panel" id="p5">
+  <div class="ph">
+    <div class="ph-eyebrow">Chapter 5 · The Motor</div>
+    <h1>Direction &amp; <span class="accent">Current Pulses</span></h1>
+    <p>Two problems had to be solved: making the rotor always turn the same direction, and not wasting battery power by keeping the current on continuously.</p>
+    <div class="ph-rule"></div>
+  </div>
+
+  <div class="sdiv"><span class="sdiv-code">5.1</span><div class="sdiv-line"></div><span class="sdiv-text">Controlling Direction — The Offset Rest Position</span></div>
+  <p class="prose">Left to itself, the rotor could spin either clockwise or counter-clockwise — both directions are equally possible. This is a problem: running the hands backwards is useless.</p>
+  <p class="prose">The solution is clever: the <strong>stator pole faces are shaped asymmetrically</strong>. The smallest gap between the rotor and stator is not at the horizontal centre — it's a few degrees offset in the clockwise direction. This means the rotor always comes to rest slightly rotated clockwise.</p>
+  <p class="prose">When the current reverses, the repulsion effect now only has one option — push the rotor clockwise. Going counter-clockwise would require pushing the like poles even closer together first, which the spring force of attraction won't allow. <strong>The rotor always turns clockwise.</strong></p>
+
+  <div class="callout amber"><strong>Key principle:</strong> The offset rest position is built into the shape of the stator. It is a mechanical solution to a directional problem — no electronics required.</div>
+
+  <div class="sdiv"><span class="sdiv-code">5.2</span><div class="sdiv-line"></div><span class="sdiv-text">Why Pulses — Not Continuous Current</span></div>
+  <p class="prose">Once the rotor has been spun to its new position, the stator's permanent magnetism is enough to hold it there — even with no current flowing. The rotor is magnetically "locked" in place until the next pulse arrives.</p>
+  <p class="prose">This means the coil only needs current for a <strong>very brief moment</strong> — just a few milliseconds — to flip the rotor. Then the current is switched off until the next second arrives.</p>
+
+  <div class="card-grid">
+    <div class="concept-card"><div class="cc-head cch-green">Benefit of short pulses</div><div class="cc-body">Most of the time, zero current flows through the coil. The circuit draws only its small background current. <strong>This is why a tiny battery can power a watch for over a year.</strong></div></div>
+    <div class="concept-card"><div class="cc-head cch-red">Cost of long pulses</div><div class="cc-body">If the pulse is longer than necessary, the coil draws current needlessly. Battery life shortens directly in proportion. Manufacturers design pulses to be as short as physically possible.</div></div>
+  </div>
+</div>
+
+<!-- 06 QUARTZ CRYSTAL -->
+<div class="panel" id="p6">
+  <div class="ph">
+    <div class="ph-eyebrow">Chapter 6 · The Crystal</div>
+    <h1>The Quartz <span class="accent">Oscillator</span></h1>
+    <p>The heart of all accuracy. A tiny piece of quartz shaped like a tuning fork, vibrating 32,768 times per second — consistently, reliably, for years.</p>
+    <div class="ph-rule"></div>
+  </div>
+
+  <div class="sdiv"><span class="sdiv-code">6.1</span><div class="sdiv-line"></div><span class="sdiv-text">Why 32,768 Hz?</span></div>
+  <p class="prose">This specific frequency is chosen because <strong>32,768 = 2¹⁵</strong> — it is exactly 2 multiplied by itself 15 times. This matters because dividing a frequency by 2 electronically is extremely simple. Divide 32,768 by 2 fifteen times, and you get exactly <em>1</em> — one pulse per second.</p>
+
+  <div class="eq-box">
+    <div class="eq-label">Dividing down to 1 Hz</div>
+    <div class="eq-formula" style="font-size:14px;">32,768 → 16,384 → 8,192 → 4,096 → 2,048 → ...<br>... → 64 → 32 → 16 → 8 → 4 → 2 → <span class="v">1 Hz</span></div>
+    <div class="eq-sub">15 stages of ÷2. Each stage is just a few transistors. Elegantly simple.</div>
+  </div>
+
+  <div class="sdiv"><span class="sdiv-code">6.2</span><div class="sdiv-line"></div><span class="sdiv-text">Why Quartz is Ideal for Timekeeping</span></div>
+  <div class="card-grid">
+    <div class="concept-card"><div class="cc-head cch-cyan">Natural oscillator</div><div class="cc-body">Like a tuning fork, quartz vibrates at a precise natural frequency when disturbed. The quartz crystal's shape and size determine this frequency — and it doesn't change easily.</div></div>
+    <div class="concept-card"><div class="cc-head cch-blue">Elasticity restores it</div><div class="cc-body">A pendulum swings back because of gravity. Quartz vibrates back because of its own <strong>elastic properties</strong> — the crystal material itself acts as the restoring spring.</div></div>
+    <div class="concept-card"><div class="cc-head cch-green">Temperature stable</div><div class="cc-body">Metal expands and contracts significantly with temperature, changing a balance spring's stiffness. Quartz is far less affected — its frequency barely drifts with temperature.</div></div>
+    <div class="concept-card"><div class="cc-head cch-amber">Position doesn't matter</div><div class="cc-body">Because the restoring force is crystal elasticity (not gravity), the vibration frequency is the same regardless of orientation. A mechanical watch rate changes in different positions.</div></div>
+  </div>
+</div>
+
+<!-- 07 PIEZO EFFECT -->
+<div class="panel" id="p7">
+  <div class="ph">
+    <div class="ph-eyebrow">Chapter 7 · The Crystal</div>
+    <h1>The <span class="accent">Piezo-Electric</span> Effect</h1>
+    <p>Quartz has a remarkable property: bending it creates electricity, and passing electricity through it makes it bend. This two-way relationship is what allows the circuit to both detect and sustain the crystal's vibration.</p>
+    <div class="ph-rule"></div>
+  </div>
+
+  <div class="sdiv"><span class="sdiv-code">7.1</span><div class="sdiv-line"></div><span class="sdiv-text">Two-Way Conversion</span></div>
+  <div class="card-grid">
+    <div class="concept-card"><div class="cc-head cch-cyan">Mechanical → Electrical</div><div class="cc-body"><strong>Bend the quartz → voltage appears.</strong><br>As the crystal vibrates and bends, it generates a small alternating voltage. The faster it vibrates, the higher the frequency of this voltage. The circuit uses this to detect and track the vibration.</div></div>
+    <div class="concept-card"><div class="cc-head cch-blue">Electrical → Mechanical</div><div class="cc-body"><strong>Apply voltage → quartz bends.</strong><br>The circuit uses this direction to give the crystal a tiny "push" each cycle, sustaining its vibration. Without these regular pushes, the vibration would eventually die out — like a pendulum without its escapement.</div></div>
+  </div>
+
+  <div class="sdiv"><span class="sdiv-code">7.2</span><div class="sdiv-line"></div><span class="sdiv-text">The Pendulum Parallel</span></div>
+  <div class="analogy">
+    <div class="an-side">
+      <div class="an-icon">🕰️</div>
+      <div class="an-label">Mechanical Watch</div>
+      <div class="an-name">Balance / Pendulum</div><div class="an-sub">vibrates back and forth</div>
+      <div class="an-name" style="margin-top:8px;">Escapement</div><div class="an-sub">gives it a push each swing</div>
+      <div class="an-name" style="margin-top:8px;">Gravity / Hairspring</div><div class="an-sub">the restoring force</div>
+    </div>
+    <div class="an-eq">=</div>
+    <div class="an-side">
+      <div class="an-icon">💎</div>
+      <div class="an-label">Quartz Watch</div>
+      <div class="an-name">Quartz Crystal</div><div class="an-sub">vibrates 32,768× per second</div>
+      <div class="an-name" style="margin-top:8px;">Electronic circuit</div><div class="an-sub">gives it a push each cycle</div>
+      <div class="an-name" style="margin-top:8px;">Crystal elasticity</div><div class="an-sub">the restoring force</div>
+    </div>
+  </div>
+</div>
+
+<!-- 08 CELLS & CAPACITORS -->
+<div class="panel" id="p8">
+  <div class="ph">
+    <div class="ph-eyebrow">Chapter 8 · The Battery</div>
+    <h1>Cells &amp; <span class="accent">Capacitors</span></h1>
+    <p>Every quartz watch needs a power source. Three options exist — primary cells, secondary (rechargeable) cells, and capacitors. Each has distinct characteristics.</p>
+    <div class="ph-rule"></div>
+  </div>
+
+  <div class="sdiv"><span class="sdiv-code">8.1</span><div class="sdiv-line"></div><span class="sdiv-text">The Three Types</span></div>
+  <div class="card-grid">
+    <div class="concept-card"><div class="cc-head cch-blue">Primary Cell</div><div class="cc-body"><strong>Use once, discard.</strong> Chemical reactions inside produce electricity. Once all the reactive material is used up, it's flat — the reactions can't be reversed. Standard watch batteries are primary cells.</div></div>
+    <div class="concept-card"><div class="cc-head cch-green">Secondary Cell</div><div class="cc-body"><strong>Rechargeable.</strong> Uses reversible chemical reactions. When flat, forcing current backwards through it restores the electrode materials. Can be charged and discharged hundreds of times. Used in solar and kinetic watches.</div></div>
+    <div class="concept-card"><div class="cc-head cch-amber">Capacitor</div><div class="cc-body"><strong>Stores charge, not chemistry.</strong> Charges and discharges rapidly. Stores much less energy than a cell of similar size, but has one key advantage: its voltage drops proportionally as it discharges — so you can read the remaining charge by measuring voltage.</div></div>
+    <div class="concept-card"><div class="cc-head cch-cyan">Seiko Kinetic</div><div class="cc-body">Generates electricity from wrist movement, stores in a capacitor or rechargeable cell. Seiko later developed special rechargeable cells whose voltage falls as they discharge — giving charge indication without needing a capacitor.</div></div>
+  </div>
+
+  <div class="callout cyan"><strong>Why does the capacitor's falling voltage matter?</strong> Standard cells maintain near-constant voltage until almost completely flat — you can't tell how much charge remains until the watch stops. A capacitor's voltage falls steadily, so the watch can display a real remaining-charge indicator. More complex electronics, but more information for the wearer.</div>
+</div>
+
+<!-- 09 CELL TYPES & BATTERY LIFE -->
+<div class="panel" id="p9">
+  <div class="ph">
+    <div class="ph-eyebrow">Chapter 9 · The Battery</div>
+    <h1>Cell Types &amp; <span class="accent">Battery Life</span></h1>
+    <p>Not all watch batteries are the same. Voltage, capacity, drain rate, and chemistry all affect how long a battery lasts — and whether it's the right choice for a given watch.</p>
+    <div class="ph-rule"></div>
+  </div>
+
+  <div class="sdiv"><span class="sdiv-code">9.1</span><div class="sdiv-line"></div><span class="sdiv-text">Cell Chemistry Comparison</span></div>
+  <table class="compare-table">
+    <thead><tr><th>Chemistry</th><th>Voltage</th><th>Drain Type</th><th>Status</th><th>Best For</th></tr></thead>
+    <tbody>
+      <tr><td>Mercury</td><td>1.35 V</td><td>Low drain</td><td>Discontinued (environmental)</td><td>Historical only — no longer made</td></tr>
+      <tr><td>Silver Oxide</td><td>1.55 V</td><td>Low or high drain</td><td>Current standard</td><td>Most analog and basic digital watches</td></tr>
+      <tr><td>Lithium</td><td>3.0 V</td><td>High drain</td><td>Current, growing use</td><td>Backlights, alarms, multi-function chronographs</td></tr>
+    </tbody>
+  </table>
+
+  <div class="sdiv"><span class="sdiv-code">9.2</span><div class="sdiv-line"></div><span class="sdiv-text">Low Drain vs. High Drain Silver Oxide</span></div>
+  <div class="card-grid">
+    <div class="concept-card"><div class="cc-head cch-green">Low Drain Cell</div><div class="cc-body"><strong>High internal resistance.</strong> Can't supply large bursts of current. Better for simple analog watches with no alarm or backlight. <strong>Self-discharge: ~5% per year.</strong> Less prone to leakage. Electrolyte: sodium hydroxide.</div></div>
+    <div class="concept-card"><div class="cc-head cch-amber">High Drain Cell</div><div class="cc-body"><strong>Lower internal resistance.</strong> Can supply larger current bursts for backlights and alarms. <strong>Self-discharge: ~10% per year.</strong> More prone to leakage when flat. Electrolyte: potassium hydroxide.</div></div>
+  </div>
+
+  <div class="warn"><span class="warn-icon">⚠</span><div class="warn-text"><strong>Self-discharge matters for stock cells.</strong> A silver oxide cell loses ~5–10% of its capacity per year sitting on a shelf. A cell that's been in stock for 3 years may already be measurably depleted before it ever goes into a watch. Always check expiry dates on battery stock.</div></div>
+
+  <div class="sdiv"><span class="sdiv-code">9.3</span><div class="sdiv-line"></div><span class="sdiv-text">Calculating Battery Life</span></div>
+  <div class="eq-box">
+    <div class="eq-label">Battery life estimate</div>
+    <div class="eq-formula" style="font-size:13px;"><span class="v">Months</span><span class="o"> = </span><span class="i">Capacity (mAh) × 1000</span><span class="o"> ÷ </span><span class="r">Consumption (μA) × 730</span></div>
+    <div class="eq-sub">Example: 100 mAh cell, watch draws 1.06 μA → 100×1000 ÷ (1.06×730) = approx 129 months (~10.7 years)</div>
+  </div>
+  <p class="prose">In practice, real battery life is shorter due to self-discharge, temperature variation, and the watch's actual (vs. rated) consumption. But this formula gives a useful starting estimate.</p>
+</div>
+
+<!-- 10 EOL & DISPOSAL -->
+<div class="panel" id="p10">
+  <div class="ph">
+    <div class="ph-eyebrow">Chapter 10 · The Battery</div>
+    <h1>EOL Indication &amp; <span class="accent">Disposal</span></h1>
+    <p>A good watch gives you warning before it stops. End-of-life indication is a simple but clever design feature built into nearly all modern quartz watches.</p>
+    <div class="ph-rule"></div>
+  </div>
+
+  <div class="sdiv"><span class="sdiv-code">10.1</span><div class="sdiv-line"></div><span class="sdiv-text">End-of-Life (EOL) — How It Works</span></div>
+  <p class="prose">Most quartz cells maintain an almost constant voltage right up until they are nearly flat — then the voltage drops steeply. Because the voltage stays constant for so long, you can't predict how much life remains by simply measuring it.</p>
+  <p class="prose">But the <strong>steep drop at the end</strong> can be detected. The circuit monitors battery voltage and when it falls below a threshold (typically around 1.3 V), it activates the EOL indication.</p>
+
+  <div class="card-grid">
+    <div class="concept-card"><div class="cc-head cch-amber">Analog watch EOL</div><div class="cc-body">The seconds hand starts <strong>fast-stepping</strong> — jumping 2, 3, 4, or 5 seconds at a time, then pausing. The watch still keeps correct time, but the unusual motion tells you a new battery is needed.</div></div>
+    <div class="concept-card"><div class="cc-head cch-blue">Digital watch EOL</div><div class="cc-body">A <strong>low battery symbol</strong> appears on the LCD display, often flashing. Some watches also reduce their display functions to conserve the remaining power.</div></div>
+  </div>
+
+  <div class="callout green"><strong>EOL indication is a useful service tool:</strong> When a watch comes in with an unusual seconds hand stepping pattern, check EOL first before diagnosing any mechanical or electronic fault. Replace the battery — the symptom may disappear entirely.</div>
+
+  <div class="sdiv"><span class="sdiv-code">10.2</span><div class="sdiv-line"></div><span class="sdiv-text">Responsible Battery Disposal</span></div>
+  <p class="prose">Watch batteries contain materials that are harmful to the environment — including silver oxide, which reacts with soil and groundwater. They should <strong>never be thrown in regular waste</strong>. Options:</p>
+  <div class="step-list">
+    <div class="step-item"><div class="step-num">1</div><div class="step-body"><div class="step-title">Collect and sell in quantity</div><div class="step-detail">If you service many watches, accumulate batteries and sell them to a registered scrap battery dealer. They contain recoverable silver with real market value.</div></div></div>
+    <div class="step-item"><div class="step-num">2</div><div class="step-body"><div class="step-title">Local Authority Recycling Centre</div><div class="step-detail">For small quantities, take to your local recycling centre and deposit in the designated battery collection bin. This is the minimum acceptable option.</div></div></div>
+    <div class="step-item"><div class="step-num">3</div><div class="step-body"><div class="step-title">Retailer take-back schemes</div><div class="step-detail">Many electronics and watch retailers accept used batteries for recycling. Check with local shops — many are legally required to take them back.</div></div></div>
+  </div>
+</div>
+
+<!-- 11 THE QUARTZ CIRCUIT -->
+<div class="panel" id="p11">
+  <div class="ph">
+    <div class="ph-eyebrow">Chapter 11 · The Circuit</div>
+    <h1>The Quartz <span class="accent">Circuit</span></h1>
+    <p>The integrated circuit is the brain of the quartz watch. It maintains the crystal's oscillation, divides the frequency down to 1 Hz, and drives the stepper motor — all in a package smaller than a grain of rice.</p>
+    <div class="ph-rule"></div>
+  </div>
+
+  <div class="sdiv"><span class="sdiv-code">11.1</span><div class="sdiv-line"></div><span class="sdiv-text">What's Inside the "Black Box"</span></div>
+  <div class="chain">
+    <div class="chain-node cyan">Oscillator<br><span style="font-size:8px;opacity:.6;">maintains 32,768 Hz</span></div><div class="chain-arrow">→</div>
+    <div class="chain-node key">Frequency Divider<br><span style="font-size:8px;opacity:.6;">÷2, 15 times</span></div><div class="chain-arrow">→</div>
+    <div class="chain-node amber">Display Driver<br><span style="font-size:8px;opacity:.6;">pulses motor or LCD</span></div><div class="chain-arrow">→</div>
+    <div class="chain-node">Output<br><span style="font-size:8px;opacity:.6;">1 pulse/sec</span></div>
+  </div>
+
+  <div class="callout"><strong>Treat it as a black box.</strong> The integrated circuit either works or it doesn't. It cannot be serviced or repaired — only replaced. On most movements, the circuit module lifts off and a replacement drops in. Always handle circuits by their edges — static discharge and mechanical shock can kill them.</div>
+
+  <div class="sdiv"><span class="sdiv-code">11.2</span><div class="sdiv-line"></div><span class="sdiv-text">Why Some Watches Don't Step Every Second</span></div>
+  <p class="prose">Quartz analog watches without a seconds hand — many ladies' watches — often step the stepper motor <strong>once every 10, 15, 20, or even 30 seconds</strong> instead of once per second.</p>
+  <p class="prose">This dramatically reduces battery drain because the motor coil (the biggest current consumer) is pulsed far less often. The gear train ratio is adjusted to compensate — the motor still drives the minute and hour hands correctly despite the slower stepping.</p>
+
+  <div class="card-grid">
+    <div class="concept-card"><div class="cc-head cch-green">Benefit</div><div class="cc-body">Far lower battery consumption. A smaller battery can be used, enabling a smaller, slimmer movement — important for dress and ladies' watch designs.</div></div>
+    <div class="concept-card"><div class="cc-head cch-amber">Tradeoff</div><div class="cc-body">No seconds hand is possible — the hand would jump in large leaps. Only suitable for watches displaying hours and minutes only.</div></div>
+  </div>
+
+  <div class="sdiv"><span class="sdiv-code">11.3</span><div class="sdiv-line"></div><span class="sdiv-text">The Inhibit (Stop) Switch</span></div>
+  <p class="prose">When you pull the crown out to the time-setting position, a <strong>small switch activates</strong> inside the movement. This switch connects a terminal on the circuit board to the main plate, which signals the integrated circuit to stop sending pulses to the stepper motor.</p>
+  <p class="prose">The train stops immediately. You can then wait for an exact moment and push the crown back in — the watch starts precisely on cue. This allows time setting to <strong>within one second</strong> of accuracy.</p>
+</div>
+
+<!-- 12 RATE SETTING & INHIBITION -->
+<div class="panel" id="p12">
+  <div class="ph">
+    <div class="ph-eyebrow">Chapter 12 · The Circuit</div>
+    <h1>Rate Setting &amp; <span class="accent">Inhibition</span></h1>
+    <p>Quartz crystals aren't perfectly accurate — they can be slightly fast or slow. Inhibition is the elegant solution that tunes the rate without any mechanical adjustments.</p>
+    <div class="ph-rule"></div>
+  </div>
+
+  <div class="sdiv"><span class="sdiv-code">12.1</span><div class="sdiv-line"></div><span class="sdiv-text">The Problem — Crystal Tolerance</span></div>
+  <p class="prose">A quartz crystal specified as 32,768 Hz might actually vibrate at 32,767.3 Hz to 32,768.7 Hz — a tolerance of ±20 parts per million (ppm). That tiny variation translates to nearly <strong>2 seconds per day</strong> of error — far more than most users would accept.</p>
+
+  <div class="sdiv"><span class="sdiv-code">12.2</span><div class="sdiv-line"></div><span class="sdiv-text">The Old Solution — Trimmers</span></div>
+  <p class="prose">Older quartz watches used a small adjustable component (a <em>trimmer capacitor</em>) on the circuit board to fine-tune the crystal frequency. Rotating the trimmer slightly changed the crystal's effective frequency. Useful, but: it added cost, complexity, and a potential failure point.</p>
+
+  <div class="sdiv"><span class="sdiv-code">12.3</span><div class="sdiv-line"></div><span class="sdiv-text">The Modern Solution — Inhibition</span></div>
+  <p class="prose">Modern watches use a smarter approach:</p>
+  <div class="step-list">
+    <div class="step-item"><div class="step-num">1</div><div class="step-body"><div class="step-title">Crystal runs deliberately fast</div><div class="step-detail">The crystal is manufactured to vibrate slightly <em>above</em> 32,768 Hz — even at the low end of its tolerance range, it runs fast. This ensures the watch always gains time without inhibition.</div></div></div>
+    <div class="step-item"><div class="step-num">2</div><div class="step-body"><div class="step-title">Circuit drops occasional pulses</div><div class="step-detail">The integrated circuit is programmed to "inhibit" (skip) one or more pulses from the crystal at precise regular intervals. Skipping a pulse means the motor doesn't step — the watch pauses for a fraction of a second.</div></div></div>
+    <div class="step-item"><div class="step-num">3</div><div class="step-body"><div class="step-title">Rate calibrated at manufacture</div><div class="step-detail">During production, each movement's actual crystal frequency is measured. The number of pulses to skip is set in the circuit to tune the net rate precisely. High-quality inhibition movements can achieve accuracy within 1 second per week.</div></div></div>
+  </div>
+
+  <div class="warn"><span class="warn-icon">⚠</span><div class="warn-text"><strong>Inhibition causes an odd timing machine reading.</strong> The watch runs slightly fast for a few seconds, then pauses briefly — then fast again. This is completely normal and correct. Always check the manufacturer's recommended measurement interval before concluding there is a rate problem. A standard measurement interval may give a misleading fast or slow reading.</div></div>
+</div>
+
+<!-- 13 GEAR TRAIN -->
+<div class="panel" id="p13">
+  <div class="ph">
+    <div class="ph-eyebrow">Chapter 13 · The Train</div>
+    <h1>The Quartz <span class="accent">Gear Train</span></h1>
+    <p>The quartz gear train looks similar to a mechanical watch train — but it works in a fundamentally different way. Understanding the differences matters for servicing.</p>
+    <div class="ph-rule"></div>
+  </div>
+
+  <div class="sdiv"><span class="sdiv-code">13.1</span><div class="sdiv-line"></div><span class="sdiv-text">How the Train Works</span></div>
+  <p class="prose">The stepper motor's rotor completes one full revolution every <strong>two seconds</strong>. We need the seconds hand to rotate once per minute — a 30:1 reduction. The gear train achieves this through a series of wheels and pinions, just like a mechanical watch.</p>
+  <div class="chain">
+    <div class="chain-node cyan">Rotor<br><span style="font-size:8px;opacity:.6;">1 rev / 2 sec</span></div><div class="chain-arrow">→</div>
+    <div class="chain-node">Intermediate Wheel</div><div class="chain-arrow">→</div>
+    <div class="chain-node">Second Wheel<br><span style="font-size:8px;opacity:.6;">1 rev / 60 sec</span></div><div class="chain-arrow">→</div>
+    <div class="chain-node">Third Wheel</div><div class="chain-arrow">→</div>
+    <div class="chain-node amber">Driving Wheel<br><span style="font-size:8px;opacity:.6;">→ motion work</span></div>
+  </div>
+
+  <div class="sdiv"><span class="sdiv-code">13.2</span><div class="sdiv-line"></div><span class="sdiv-text">Key Differences from a Mechanical Train</span></div>
+  <div class="card-grid">
+    <div class="concept-card"><div class="cc-head cch-blue">Driven from the fast end</div><div class="cc-body">In a mechanical watch, the mainspring drives from the <em>slow</em> end (barrel). In a quartz watch, the stepper motor drives from the <em>fast</em> end (rotor). This means <strong>almost no torque</strong> develops anywhere in the train.</div></div>
+    <div class="concept-card"><div class="cc-head cch-green">Plastic is fine</div><div class="cc-body">Without torque, there's no significant wear. Plastic wheels, pinions, and even pivots are used extensively — they're cheap to injection-mould and many plastics are self-lubricating. Jewel count is often <em>zero</em>.</div></div>
+    <div class="concept-card"><div class="cc-head cch-amber">No jewels needed</div><div class="cc-body">Jewels prevent wear in mechanical watches where torque is high. With almost no torque and often self-lubricating plastic components, jewels are unnecessary. <strong>Jewel count is no longer a quality indicator in quartz watches.</strong></div></div>
+    <div class="concept-card"><div class="cc-head cch-red">Vulnerable to jamming</div><div class="cc-body">Because the motor produces very little power, almost no reserve torque exists. A speck of dust or dried lubricant can jam the train completely. Good case sealing is important — dirt ingress is a common service cause.</div></div>
+  </div>
+
+  <div class="callout amber"><strong>Diagnostic tip:</strong> A quartz watch that stops intermittently or whose battery life is shorter than expected often has a partially jammed train. Measure the current consumption — if it's higher than specified, the motor is working harder to overcome friction. Service the train.</div>
+</div>
+
+<!-- 14 MOTION WORK & KEYLESS WORK -->
+<div class="panel" id="p14">
+  <div class="ph">
+    <div class="ph-eyebrow">Chapter 14 · The Train</div>
+    <h1>Motion Work &amp; <span class="accent">Keyless Work</span></h1>
+    <p>Setting the hands and date on a quartz watch uses familiar components — but with some important differences from a mechanical watch, particularly in how the cannon pinion is driven.</p>
+    <div class="ph-rule"></div>
+  </div>
+
+  <div class="sdiv"><span class="sdiv-code">14.1</span><div class="sdiv-line"></div><span class="sdiv-text">The Cannon Pinion Difference</span></div>
+  <p class="prose">In a mechanical watch, the cannon pinion is friction-fit onto the centre arbor and the arbor turns continuously to drive the hands. In a quartz watch, the centre arbor doesn't exist in the same way — a <strong>driving wheel</strong> is turned by the third pinion in the train.</p>
+  <p class="prose">The cannon pinion is fitted between the two "arms" of the driving wheel. While the watch is running, the whole assembly turns together. When setting the hands, the driving wheel is held stationary by the stopped train — and the cannon pinion is turned against the friction grip, slipping through the arms. <strong>Same friction principle, different mechanical arrangement.</strong></p>
+
+  <div class="sdiv"><span class="sdiv-code">14.2</span><div class="sdiv-line"></div><span class="sdiv-text">The Three Crown Positions</span></div>
+  <div class="step-list">
+    <div class="step-item"><div class="step-num">Pos 1</div><div class="step-body"><div class="step-title">Stem fully pushed in — winding position</div><div class="step-detail">In a quartz watch, turning the crown in this position has <strong>no effect</strong> — the watch is battery powered and needs no winding. Some movements engage a crown-operated function (e.g., alarm set) in this position, but the basic function is neutral.</div></div></div>
+    <div class="step-item"><div class="step-num">Pos 2</div><div class="step-body"><div class="step-title">Stem pulled out one click — date correction</div><div class="step-detail">The setting mechanism engages a "three-toothed date corrector" via the date setting wheel. Turning the crown (usually anticlockwise) advances the date indicator directly. Useful for rapid date correction without running through all 24 hours.</div></div></div>
+    <div class="step-item"><div class="step-num">Pos 3</div><div class="step-body"><div class="step-title">Stem pulled out fully — time setting</div><div class="step-detail">The sliding pinion engages the setting wheel on the dial side. This drives the minute wheel and cannon pinion directly. <strong>The inhibit switch also activates in this position</strong> — stopping the motor so you can set time precisely and restart at the exact moment.</div></div></div>
+  </div>
+
+  <div class="callout cyan"><strong>The stop lever:</strong> When the stem is pulled to position 3, a stop lever engages a train wheel to physically arrest the train, while the switch contact signals the circuit to halt pulsing. Both mechanical braking and electronic stopping happen simultaneously.</div>
+</div>
+
+<!-- 15 DATE MECHANISM -->
+<div class="panel" id="p15">
+  <div class="ph">
+    <div class="ph-eyebrow">Chapter 15 · The Train</div>
+    <h1>The Date Change <span class="accent">Mechanism</span></h1>
+    <p>The date changes automatically at midnight via a chain of wheels driven from the hour wheel. Understanding this mechanism helps diagnose date-related faults.</p>
+    <div class="ph-rule"></div>
+  </div>
+
+  <p class="prose">The date change mechanism is located under the dial. The <strong>hour wheel</strong> is the starting point — it completes one rotation every 12 hours. Through an intermediate date wheel and a pinion, it drives the <strong>date indicator driving wheel</strong>, which takes 24 hours to complete one rotation.</p>
+
+  <div class="step-list">
+    <div class="step-item"><div class="step-num">1</div><div class="step-body"><div class="step-title">Hour wheel rotates</div><div class="step-detail">The hour wheel (1 rotation per 12 hours) drives the intermediate date wheel, which drives the date indicator driving wheel (1 rotation per 24 hours).</div></div></div>
+    <div class="step-item"><div class="step-num">2</div><div class="step-body"><div class="step-title">Driving wheel engages the date ring</div><div class="step-detail">The date indicator driving wheel has a projection that engages one tooth on the date indicator ring once per 24-hour rotation. This advances the date ring by exactly one day.</div></div></div>
+    <div class="step-item"><div class="step-num">3</div><div class="step-body"><div class="step-title">Date jumper completes and locks the change</div><div class="step-detail">The <strong>date jumper</strong> serves three purposes: it helps snap the date indicator into the next position when it's close, it holds the date indicator completely still for the other 23+ hours, and it ensures the date number is centred precisely in the window.</div></div></div>
+  </div>
+
+  <div class="callout amber"><strong>Common fault — date changes at wrong time:</strong> The date should change at midnight. If it changes at noon instead, the hour wheel is 12 hours out of phase — set the time to 12:00 AM rather than PM, let it run through midnight to reset the date, then set the correct time.</div>
+</div>
+
+<!-- 16 LCD -->
+<div class="panel" id="p16">
+  <div class="ph">
+    <div class="ph-eyebrow">Chapter 16 · Display</div>
+    <h1>Liquid Crystal <span class="accent">Displays</span></h1>
+    <p>No backlight, no power to show an image — LCDs work by blocking light rather than producing it. Extremely low power, extremely versatile, and surprisingly simple to troubleshoot.</p>
+    <div class="ph-rule"></div>
+  </div>
+
+  <div class="sdiv"><span class="sdiv-code">16.1</span><div class="sdiv-line"></div><span class="sdiv-text">How an LCD Actually Works</span></div>
+  <p class="prose">An LCD is a sandwich: two thin glass sheets with a liquid crystal layer between them. Transparent electrodes on the inner surfaces create the segments of each digit. In their normal state, these segments are <strong>transparent</strong> — light passes through and reflects off a silver backing, making the segment appear as a bright background colour.</p>
+  <p class="prose">When a voltage is applied to a segment, the liquid crystals in that area align differently, making the segment <strong>opaque</strong>. Light can no longer pass through — the segment appears dark (black). This is how characters are formed: select which segments to make opaque, and you get the desired digit or symbol.</p>
+
+  <div class="callout"><strong>Important:</strong> LCDs don't generate light — they modulate it. This is why they're invisible in the dark without a backlight, but also why they use almost no power in normal use. The backlight uses far more power than the display itself.</div>
+
+  <div class="sdiv"><span class="sdiv-code">16.2</span><div class="sdiv-line"></div><span class="sdiv-text">The Conductive Rubber Strip — Most Common Fault</span></div>
+  <p class="prose">The LCD electrodes connect to the circuit board via a <strong>special conductive rubber strip</strong> — a zebra-striped component with alternating conductive and insulating layers. It carries electricity vertically (from circuit to LCD) but not horizontally.</p>
+  <p class="prose">This strip must make clean contact at both surfaces. Dirt, dust, oxidation, or simple misalignment causes one or more segments to fail — or the entire display to go blank.</p>
+
+  <div class="step-list">
+    <div class="step-item"><div class="step-num">1</div><div class="step-body"><div class="step-title">Clean circuit board terminals with a dry leather buff stick</div><div class="step-detail">The terminals may have a thin oxide film. Rub gently 2–3 times with a dry buff stick. Never use abrasives — these terminals are delicate.</div></div></div>
+    <div class="step-item"><div class="step-num">2</div><div class="step-body"><div class="step-title">Clean the rubber strip surfaces</div><div class="step-detail">Use a blower to remove dust. If needed, a soft leather buff or cloth. <strong>Never use cleaning fluids on the rubber strip</strong> — solvents cause it to swell permanently, ruining the component.</div></div></div>
+    <div class="step-item"><div class="step-num">3</div><div class="step-body"><div class="step-title">Clean LCD terminal edge</div><div class="step-detail">Same gentle dry approach. Ensure no fibres or dust remain on any surface before reassembly — these can break the electrical contact.</div></div></div>
+    <div class="step-item"><div class="step-num">4</div><div class="step-body"><div class="step-title">Reassemble and test</div><div class="step-detail">In most cases, cleaning restores a faulty digital display completely. If individual segments remain permanently opaque (black patches) after cleaning, the LCD itself is damaged — replace it.</div></div></div>
+  </div>
+</div>
+
+<!-- 17 TESTING -->
+<div class="panel" id="p17">
+  <div class="ph">
+    <div class="ph-eyebrow">Chapter 17 · Testing</div>
+    <h1>Testing Quartz <span class="accent">Watches</span></h1>
+    <p>A quartz watch tester is the essential diagnostic tool. These tests tell you what's wrong before you touch a screw — and confirm the repair was successful after the service.</p>
+    <div class="ph-rule"></div>
+  </div>
+
+  <div class="callout"><strong>Test before and after.</strong> Always run diagnostics before disassembly to understand what the problem is. Repeat after servicing to confirm everything is within manufacturer's specifications. Never work blind.</div>
+
+  <div class="sdiv"><span class="sdiv-code">17.1</span><div class="sdiv-line"></div><span class="sdiv-text">The Test Battery</span></div>
+  <table class="compare-table">
+    <thead><tr><th>Test</th><th>What It Tells You</th><th>Tool Needed</th></tr></thead>
+    <tbody>
+      <tr><td>Battery Voltage</td><td>Basic cell condition. But flat cells often still show near-normal voltage until the very end — additional tests needed.</td><td>Multimeter or tester</td></tr>
+      <tr><td>Drive Pulses</td><td>Is the circuit generating pulses for the stepper motor? Indicates whether the circuit or coil is the problem.</td><td>Quartz tester</td></tr>
+      <tr><td>Current Consumption</td><td>Most useful diagnostic. High current = train friction or mechanical problem. Compare against manufacturer's spec.</td><td>Quartz tester</td></tr>
+      <tr><td>EOL Voltage</td><td>Does the low-battery indication activate at the correct voltage? Typically ~1.3 V.</td><td>Quartz tester (variable voltage)</td></tr>
+      <tr><td>Lower Working Voltage</td><td>Does the watch continue to run correctly down to the specified minimum voltage?</td><td>Quartz tester (variable voltage)</td></tr>
+      <tr><td>Coil Resistance</td><td>Is the coil intact? Open circuit = infinite resistance. Short = lower than specified. Compare to data sheet.</td><td>Multimeter or tester</td></tr>
+      <tr><td>Coil Insulation</td><td>Is the coil electrically isolated from the main plate? Should show infinite resistance between coil terminals and plate.</td><td>Quartz tester (high resistance range)</td></tr>
+      <tr><td>Rate</td><td>Is the watch running at the correct speed? Only useful for older watches with trimmer adjustment.</td><td>Timing machine</td></tr>
+    </tbody>
+  </table>
+
+  <div class="sdiv"><span class="sdiv-code">17.2</span><div class="sdiv-line"></div><span class="sdiv-text">Current Consumption — The Most Valuable Test</span></div>
+  <p class="prose">Measuring current consumption requires the quartz tester to substitute for the battery — probes contact the battery terminals in the movement, the tester supplies the operating voltage and measures average current drawn over several steps.</p>
+  <p class="prose">The result tells you:</p>
+  <div class="card-grid">
+    <div class="concept-card"><div class="cc-head cch-green">Normal current</div><div class="cc-body">Movement is running cleanly. Train is free, lubrication is adequate, no significant friction. Battery life will be as specified.</div></div>
+    <div class="concept-card"><div class="cc-head cch-red">High current</div><div class="cc-body"><strong>Motor is working harder to overcome resistance.</strong> Likely cause: dirty or dry train pivots, dried lubricant, dirt ingress, or calendar mechanism requiring extra torque. Service is needed.</div></div>
+  </div>
+
+  <div class="sdiv"><span class="sdiv-code">17.3</span><div class="sdiv-line"></div><span class="sdiv-text">Coil Resistance — What to Look For</span></div>
+  <p class="prose">The stepper motor coil has thousands of turns of fine wire — typical resistance is <strong>several hundred to a few thousand ohms</strong>. Check the manufacturer's data sheet for the exact specification.</p>
+  <div class="step-list">
+    <div class="step-item"><div class="step-num">→</div><div class="step-body"><div class="step-title">Infinite resistance (open circuit)</div><div class="step-detail">The coil wire has broken — most commonly due to a knife blade or screwdriver skidding over the movement during case opening. The watch will not run. Replace the coil or movement.</div></div></div>
+    <div class="step-item"><div class="step-num">→</div><div class="step-body"><div class="step-title">Very low resistance</div><div class="step-detail">Some coil turns are shorted together — insulation has failed. Effective coil length is reduced. Electrically isolate the coil from the circuit board and retest to confirm.</div></div></div>
+    <div class="step-item"><div class="step-num">→</div><div class="step-body"><div class="step-title">Normal resistance</div><div class="step-detail">Coil is intact. If the watch still doesn't run, the problem is in the circuit, battery, or mechanical train — not the coil.</div></div></div>
+  </div>
+
+  <div class="warn"><span class="warn-icon">⚠</span><div class="warn-text"><strong>Use digital meters only for coil testing.</strong> Analogue (moving-needle) meters apply a higher test voltage that can damage the integrated circuit. Always use a digital multimeter or proper quartz tester when probing coil terminals with the circuit still in place. The fine wires connecting the coil terminals to the coil body are nearly invisible — probe with extreme care.</div></div>
+</div>
+
+</main>
+</div>
+
+<script>
+function nav(el, id) {
+  document.querySelectorAll('.sb-item').forEach(i => i.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById(id).classList.add('active');
+  if (window.innerWidth <= 820) document.querySelector('.sidebar').classList.remove('open');
+  document.querySelector('.main').scrollTop = 0;
+}
+</script>
+</body>
+</html>
